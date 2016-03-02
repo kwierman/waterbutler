@@ -130,14 +130,14 @@ class DryadProvider(provider.BaseProvider):
         :raises:   exceptions.DownloadError
 
         """
-
+        print ("KEVIN THIS IS BEFORE THE BITSTREAM REQUEST")
         resp = yield from self.make_request(
             'GET',
             DRYAD_META_URL + path.path + '/bitstream',
             expects=(200, 206),
             throws=exceptions.DownloadError,
         )
-
+        print ("KEVIN THIS IS AFTER THE BITSTREAM REQUEST")
         file_metadata = yield from self._file_metadata(path.path)
 
         return streams.ResponseStreamReader(resp,
@@ -151,25 +151,14 @@ class DryadProvider(provider.BaseProvider):
         / or /XXXX/ or /XXXX/YY for package XXXX as specified in doi or
         file YY or / for the reference to Dryad itself.
         """
-        if path is None:
-            return WaterButlerPath('/')
-        depth = path.count('/')
-        if depth == 1:
-            if path == '/':
-                return WaterButlerPath(path)
-            else:
+        wbpath = WaterButlerPath(path)
+        if wbpath.is_root:
+            return wbpath
+        if len(wbpath.parts) == 2 and not wbpath.is_dir:
                 raise exceptions.NotFoundError(path)
-        if depth == 2:
-            internal_doi = path.split('/')[1]
-            file_doi = path.split('/')[2]
-            if path.endswith('/') and len(internal_doi) == 4:
-                return WaterButlerPath(path)
-            elif len(internal_doi) == 4 and len(file_doi) > 0:
-                return WaterButlerPath(path)
-            else:
-                raise exceptions.NotFoundError(path)
-        else:
+        elif len(wbpath.parts) == 3 and not wbpath.is_file:
             raise exceptions.NotFoundError(path)
+        return wbpath
 
     @asyncio.coroutine
     def validate_v1_path(self, path, **kwargs):
@@ -178,38 +167,24 @@ class DryadProvider(provider.BaseProvider):
         / or /XXXX/ or /XXXX/YY for package XXXX as specified in doi or
         file YY or / for the reference to Dryad itself.
         """
-        if path is None:
-            return WaterButlerPath('/')
-        depth = path.count('/')
-        if depth == 1:
-            if path == '/':
-                return WaterButlerPath(path)
-            else:
-                raise exceptions.NotFoundError(path)
-        if depth == 2:
-            internal_doi = path.split('/')[1]
-            file_doi = path.split('/')[2]
-            full_url = DRYAD_META_URL + internal_doi
-            if len(file_doi) > 0:
-                full_url += '/' + file_doi
-            resp = yield from self.make_request(
-                'GET',
-                full_url,
-                expects=(200, 404),
-                throws=exceptions.MetadataError,
-            )
+        wbpath = self.validate_path(path, **kwargs)
 
-            if resp.status == 404:
-                raise exceptions.NotFoundError(str(path))
+        # Polls the Dryad server to make sure DOI exists
+        internal_doi = path.split('/')[1]
+        file_doi = path.split('/')[2]
+        full_url = DRYAD_META_URL + internal_doi
+        if len(file_doi) > 0:
+            full_url += '/' + file_doi
+        resp = yield from self.make_request(
+            'GET',
+            full_url,
+            expects=(200, 404),
+            throws=exceptions.MetadataError,
+        )
+        if resp.status == 404:
+            raise exceptions.NotFoundError(str(path))
 
-            if path.endswith('/') and len(internal_doi) == 4:
-                return WaterButlerPath(path)
-            elif len(internal_doi) == 4 and len(file_doi) > 0:
-                return WaterButlerPath(path)
-            else:
-                raise exceptions.NotFoundError(path)
-        else:
-            raise exceptions.NotFoundError(path)
+        return (yield from wbpath)
 
     def can_intra_move(self, other, path=None):
         raise exceptions.ReadOnlyProviderError(self)
