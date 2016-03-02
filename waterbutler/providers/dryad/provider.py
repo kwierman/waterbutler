@@ -130,14 +130,12 @@ class DryadProvider(provider.BaseProvider):
         :raises:   exceptions.DownloadError
 
         """
-        print ("KEVIN THIS IS BEFORE THE BITSTREAM REQUEST")
         resp = yield from self.make_request(
             'GET',
             DRYAD_META_URL + path.path + '/bitstream',
             expects=(200, 206),
             throws=exceptions.DownloadError,
         )
-        print ("KEVIN THIS IS AFTER THE BITSTREAM REQUEST")
         file_metadata = yield from self._file_metadata(path.path)
 
         return streams.ResponseStreamReader(resp,
@@ -167,14 +165,13 @@ class DryadProvider(provider.BaseProvider):
         / or /XXXX/ or /XXXX/YY for package XXXX as specified in doi or
         file YY or / for the reference to Dryad itself.
         """
-        wbpath = self.validate_path(path, **kwargs)
+        wbpath = yield from self.validate_path(path, **kwargs)
+        if wbpath.is_root:
+            return wbpath
+        full_url = DRYAD_META_URL + wbpath.parts[1].value
+        if wbpath.is_file:
+            full_url += '/' + wbpath.parts[2].value
 
-        # Polls the Dryad server to make sure DOI exists
-        internal_doi = path.split('/')[1]
-        file_doi = path.split('/')[2]
-        full_url = DRYAD_META_URL + internal_doi
-        if len(file_doi) > 0:
-            full_url += '/' + file_doi
         resp = yield from self.make_request(
             'GET',
             full_url,
@@ -184,7 +181,7 @@ class DryadProvider(provider.BaseProvider):
         if resp.status == 404:
             raise exceptions.NotFoundError(str(path))
 
-        return (yield from wbpath)
+        return wbpath
 
     def can_intra_move(self, other, path=None):
         raise exceptions.ReadOnlyProviderError(self)
